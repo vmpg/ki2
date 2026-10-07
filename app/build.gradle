@@ -40,8 +40,8 @@ android {
         minSdk 26
         targetSdk 34
 		
-        versionCode properties.getProperty("VERSION_CODE", "1") as int
-        versionName properties.getProperty("VERSION_NAME", "0.1")
+        versionCode properties.getProperty("VERSION_CODE", "36") as int
+        versionName properties.getProperty("VERSION_NAME", "16.0-vmpg-test1")
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
