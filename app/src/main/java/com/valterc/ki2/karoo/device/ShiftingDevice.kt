@@ -10,6 +10,7 @@ import com.valterc.ki2.data.preferences.device.DevicePreferencesView
 import com.valterc.ki2.data.shifting.ShiftingInfo
 import com.valterc.ki2.karoo.Ki2ExtensionContext
 import com.valterc.ki2.karoo.datatypes.Ki2DataType
+import com.valterc.ki2.karoo.shifting.BuzzerTracking
 import com.valterc.ki2.karoo.shifting.ShiftingGearingHelper
 import io.hammerhead.karooext.internal.Emitter
 import io.hammerhead.karooext.models.BatteryStatus
@@ -57,6 +58,7 @@ class ShiftingDevice(
 
     private val shiftingGearingHelper =
         ShiftingGearingHelper(extensionContext.context)
+    private val buzzerTracking = BuzzerTracking()
     private var preferencesView: PreferencesView? = null
     private var devicePreferencesView: DevicePreferencesView? = null
     private var connectionInfo: ConnectionInfo? = null
@@ -163,6 +165,17 @@ class ShiftingDevice(
                 }
 
                 lock.withLock {
+                    val previousUpcoming = buzzerTracking.upcomingSynchroShiftType
+                    buzzerTracking.setShiftingInfo(shiftingInfo)
+                    val currentUpcoming = buzzerTracking.upcomingSynchroShiftType
+                    if (previousUpcoming != currentUpcoming) {
+                        Timber.d(
+                            "[%s] Upcoming synchro shift: %s -> %s",
+                            deviceId.uid,
+                            previousUpcoming,
+                            currentUpcoming,
+                        )
+                    }
                     shiftingGearingHelper.setShiftingInfo(shiftingInfo)
                     emitDataPoints(emitter)
                 }
@@ -299,6 +312,11 @@ class ShiftingDevice(
 
             Ki2DataType.Field.DI2_REAR_GEAR_INDEX to shiftingGearingHelper.rearGear.toDouble(),
             Ki2DataType.Field.DI2_REAR_GEAR_MAX to shiftingGearingHelper.rearGearMax.toDouble(),
+
+            Ki2DataType.Field.DI2_UPCOMING_SYNCHRO_SHIFT to
+                Ki2DataType.UpcomingSynchroShiftValue.from(
+                    buzzerTracking.upcomingSynchroShiftType
+                ),
         )
 
         if (shiftingGearingHelper.hasFrontGearSize()) {

@@ -1,0 +1,97 @@
+name: Build signed APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feature/export-upcoming-synchro-shift
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission to Gradle wrapper
+        run: chmod +x gradlew
+
+      - name: Verify required secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          S_NETWORK_KEY: ${{ secrets.S_NETWORK_KEY }}
+        run: |
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD S_NETWORK_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "Required GitHub Actions secret is missing: ${name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Prepare temporary build credentials
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          S_NETWORK_KEY: ${{ secrets.S_NETWORK_KEY }}
+          GH_USER: ${{ github.actor }}
+          GH_KEY: ${{ github.token }}
+        run: |
+          umask 077
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/ki2-vmpg.jks"
+          printf '%s\n' \
+            "RELEASE_STORE_FILE=${RUNNER_TEMP}/ki2-vmpg.jks" \
+            "RELEASE_STORE_PASSWORD=${ANDROID_KEYSTORE_PASSWORD}" \
+            "RELEASE_KEY_ALIAS=${ANDROID_KEY_ALIAS}" \
+            "RELEASE_KEY_PASSWORD=${ANDROID_KEY_PASSWORD}" \
+            "VERSION_CODE=36" \
+            "VERSION_NAME=16.0-vmpg-test1" \
+            "gpr.user=${GH_USER}" \
+            "gpr.key=${GH_KEY}" > local.properties
+          printf '%s' '<?xml version="1.0" encoding="utf-8"?><resources><string name="network_key">' > app/src/main/res/values/secrets.xml
+          printf '%s' "${S_NETWORK_KEY}" >> app/src/main/res/values/secrets.xml
+          printf '%s\n' '</string></resources>' >> app/src/main/res/values/secrets.xml
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Build signed release APK
+        run: ./gradlew assembleRelease
+
+      - name: Verify APK signature
+        run: |
+          APKSIGNER="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)/apksigner"
+          "${APKSIGNER}" verify --verbose app/build/outputs/apk/release/ki2-release.apk
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ki2-vmpg-signed-apk
+          path: app/build/outputs/apk/release/ki2-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove temporary credentials
+        if: always()
+        run: |
+          rm -f "${RUNNER_TEMP}/ki2-vmpg.jks"
+          rm -f local.properties
+          rm -f app/src/main/res/values/secrets.xml
